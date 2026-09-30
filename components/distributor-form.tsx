@@ -72,71 +72,31 @@ export default function DistributorForm({
     lastSubmitRef.current = now;
 
     try {
-      // Fetch configuration
-      const configRes = await fetch('/api/distributor-enquiry');
-      if (!configRes.ok) throw new Error('Failed to load configuration');
-      const { recipientEmail } = await configRes.json();
-      
-      if (!recipientEmail) throw new Error('Missing recipient email configuration');
-
-      // Generate Reference ID
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      let suffix = '';
-      for (let i = 0; i < 6; i++) {
-        suffix += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      const newReferenceId = `INV-${suffix}`;
-
-      // Format timestamp
-      const timestamp = new Date().toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      }) + ' IST';
-
-      const payload = {
-        _subject: `New INVolt Distributor Enquiry — ${newReferenceId}`,
-        _template: 'table',
-        _captcha: 'false',
-        _replyto: trimmedEmail,
-        'Reference ID': newReferenceId,
-        'Name': trimmedName,
-        'Email': trimmedEmail,
-        'Phone': trimmedPhone,
-        'Source': source,
-        'Submission Time': timestamp,
-        'Product / Context': productContext,
-        'Requirements': requirements
-      };
-
-      const response = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(recipientEmail)}`, {
+      // POST form data to our server-side API route (avoids CORS)
+      const response = await fetch('/api/distributor-enquiry', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
+          phone: trimmedPhone,
+          source,
+          productContext,
+          requirements,
+        }),
       });
 
-      let data = null;
-      try {
-        data = await response.json();
-      } catch {
-        // Ignored
-      }
+      const data = await response.json() as {
+        ok: boolean;
+        referenceId?: string;
+        error?: string;
+      };
 
-      const isSuccess = response.ok && data && (data.success === 'true' || data.success === true);
-      const isActivationPending = data && typeof data.message === 'string' && data.message.toLowerCase().includes('activation');
-
-      if (isSuccess || isActivationPending) {
-        if (isActivationPending) {
-          console.log(`[distributor-form] FormSubmit activation email sent to ${recipientEmail}. Complete first-time activation to receive future leads directly.`);
-        }
-        
+      if (data.ok) {
+        const newReferenceId = data.referenceId || '';
         setReferenceId(newReferenceId);
         setSubmittedData({
           name: trimmedName,
@@ -148,9 +108,8 @@ export default function DistributorForm({
           onSuccess(newReferenceId);
         }
       } else {
-        console.error('[distributor-form] FormSubmit rejected submission:', { status: response.status, data });
         setStatus('error');
-        setErrorMessage((data && data.message) || 'Unable to send your enquiry. Please try again.');
+        setErrorMessage(data.error || 'Unable to send your enquiry. Please try again.');
       }
     } catch {
       setStatus('error');
